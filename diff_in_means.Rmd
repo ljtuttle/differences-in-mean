@@ -5,7 +5,8 @@ date: "5/21/2020"
 output: html_document
 ---
 
-Here I have converted the R script from Crippa and Orsini (2016) to R Markdown format, and have made changes to work with my dataset of interest (the effects of deposited sediment on coral photosynthetic yield).
+Here I have converted the R script from Crippa and Orsini (2016) to R Markdown format, and have made changes to work with my dataset of interest -- the effects of deposited sediment on coral photosynthetic yield. This code is for a two-stage dose-response meta-analysis (DRMA) with a continuous effect size (difference in means). For the more recently developed one-stage DRMA, I have not found code for a continuous effect size, only for a binary (log-odds) effect size.  
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ### R script to reproduce the results in:
@@ -62,9 +63,10 @@ effectsize <- effectsize %>%
 ES_fv_fm <- effectsize %>% filter(Response == "fv_fm")
 ES_fv_fm
 
-#removed Junjie and Phillip & Fabricius papers, whose comparisons have only one non-referent value
+#removed Junjie and Phillip & Fabricius papers, whose comparisons have only one non-referent value, which I believe is not allowed in the two-stage DRMA:
 ES_fv_fm1 <- ES_fv_fm[!(ES_fv_fm$Ref=="10" | ES_fv_fm$Ref=="16a"),]
 ES_fv_fm1 
+#also playing around with data by removing AB and AC comparisons from Bessell-Browne et al. data, because their effect sizes were zero:
 ES_fv_fm2 <- ES_fv_fm1[!(ES_fv_fm1$Comparison=="AA" | ES_fv_fm1$Comparison=="AC"),]
 ES_fv_fm2
 ```
@@ -96,17 +98,15 @@ names(ES_fv_fm1)[names(ES_fv_fm1) == "Sed_exposure_mg_cm2"] <- "dose"
 names(ES_fv_fm2)[names(ES_fv_fm2) == "Sed_exposure_mg_cm2"] <- "dose"
 #names(ES_fv_fm) #check!
 
-ES_fv_fm1$Comparison
-bessellAB <- subset(ES_fv_fm, Comparison == "AB")
+bessellAB <- subset(ES_fv_fm1, Comparison == "AB")
 bessellAB
 
 ## Calculate mean differences, variances and covariance matrix
 covar.smd(y = Tx_mean, sd = Tx_sd, n = Tx_n, measure = "smd", data = bessellAB)
 
 ## Dose-response model using restricted cubic spline
-knots1 <- quantile(ES_fv_fm$dose, c(.1, .5, .9))
-spl_ex1 <- dosresmeta(formula = Tx_mean ~ rcs(dose, knots1), sd = Tx_sd, n = Tx_n, 
-                      covariance = "smd", data = bessellAB)
+knots1 <- quantile(ES_fv_fm1$dose, c(.1, .5, .9))
+spl_ex1 <- dosresmeta(formula = Tx_mean ~ rcs(dose, knots1), sd = Tx_sd, n = Tx_n, covariance = "smd", data = bessellAB)
 
 ## Summary of the model, print coefficients and covariance matrix
 summary(spl_ex1)
@@ -201,16 +201,19 @@ dev.off()
 ```
   
   
-## Main analysis for my dataset
+## Main analysis for my dataset  
+I get an error when attempting to create the 'spl1' model below ("singular matrix 'a' in solve") and have not figured out how to solve this yet. I have changed data = ES_fv_fm2 (which removes Comparisons AA and AC with all-zero effect sizes), which did not solve the problem. I have also tried with and without the spline knots and changed the covariance to "md", but this also didn't work.  
+
+Changing id = Ref works for some reason, but this misspecifies the comparisons so cannot be used.  
+
 ```{r, echo=FALSE}
 ## Obtaining mean differences, variances, and (co)variance matrices for the all the studies
 cov.md1 <- by(ES_fv_fm1, ES_fv_fm1$Comparison, function(x) covar.smd(Tx_mean, Tx_sd, Tx_n, "smd", data = x))
 ES_fv_fm1$md <- unlist(lapply(cov.md1, function(x) x$y))
 ES_fv_fm1$vmd <- unlist(lapply(cov.md1, function(x) x$v))
-knots2 <- quantile(ES_fv_fm1$dose, c(.1, .5, .9))
 
 ## Dose-response meta-analysis
-spl1 <- dosresmeta(formula = Tx_mean ~ rcs(dose, knots2), 
+spl1 <- dosresmeta(formula = Tx_mean ~ rcs(dose, knots1), 
                    id = Comparison, sd = Tx_sd, n = Tx_n, 
                    covariance = "smd", data = ES_fv_fm1)
 #!! Error in qr.solve(invtUX, invtUy) : singular matrix 'a' in solve
